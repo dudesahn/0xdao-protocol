@@ -162,6 +162,20 @@ contract OxPool is ERC20 {
         IERC20(solidPoolAddress).transfer(msg.sender, amount);
     }
 
+    /**
+     * @notice Withdraw Solidly LP and burn msg.sender's oxPool receipt token without touching anything else
+     */
+    function emergencyWithdrawLp(uint256 amount) public {
+        // Withdraw Solidly LP from gauge
+        _voterProxy.withdrawFromGauge(solidPoolAddress, amount);
+
+        // Burn oxPool receipt token
+        _burn(_msgSender(), amount);
+
+        // Transfer Solidly LP back to msg.sender
+        IERC20(solidPoolAddress).transfer(msg.sender, amount);
+    }
+
     /*******************************************************
      *                 Reward tokens sync mechanism
      *******************************************************/

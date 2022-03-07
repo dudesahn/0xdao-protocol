@@ -46,9 +46,9 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         external
         onlyUserProxyInterfaceOrOwner
         syncPools
-    {
+    { //ds why don't we do syncSolidEmissions(solidPoolAddress) here as well?
         // No empty deposits
-        require(amount > 0, "Deposit amount must be greater than zero");
+        require(amount > 0, "Deposit must be >0"); //ds technically don't need this require, since we have it in the multirewards stake
 
         // Deposit Solidly LP
         IERC20(solidPoolAddress).transferFrom(
@@ -58,20 +58,20 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         );
 
         // Transfer Solidly LP to ox pool to receive Ox pool LP receipt token
-        address oxPoolAddress = oxLens.oxPoolBySolidPool(solidPoolAddress);
+        address oxPoolAddress = oxLens.oxPoolBySolidPool(solidPoolAddress); //ds malicious lens could redirect user funds to wrong place
         IERC20(solidPoolAddress).approve(oxPoolAddress, amount);
         IOxPool(oxPoolAddress).depositLp(amount);
 
         // Save staking balance
-        address stakingAddress = IOxPool(oxPoolAddress).stakingAddress();
-        uint256 stakingBalanceBefore = IERC20(stakingAddress).balanceOf(
+        address stakingAddress = IOxPool(oxPoolAddress).stakingAddress(); //ds this stakingAddress is the address of the multirewards staking contract for our oxPool token
+        uint256 stakingBalanceBefore = IMultiRewards(stakingAddress).balanceOf(
             address(this)
         );
 
         // Stake oxLP in multirewards
         IERC20(oxPoolAddress).approve(stakingAddress, amount);
         IMultiRewards(stakingAddress).stake(amount);
-        uint256 stakingBalanceAfter = IERC20(stakingAddress).balanceOf(
+        uint256 stakingBalanceAfter = IMultiRewards(stakingAddress).balanceOf(
             address(this)
         );
 
@@ -92,9 +92,9 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         onlyUserProxyInterfaceOrOwner
         syncPools
         syncSolidEmissions(solidPoolAddress)
-    {
+    { //ds why only syncSolidEmissions on this one and not the staking one. also, reentrancy potential? need to check
         // No empty deposits
-        require(amount > 0, "Deposit amount must be greater than zero");
+        require(amount > 0, "Deposit must be >0");
 
         // Deposit Solidly LP
         IERC20(solidPoolAddress).transferFrom(
@@ -121,17 +121,17 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         address solidPoolAddress,
         uint256 amount,
         bool claimRewards
-    ) public onlyUserProxyInterfaceOrOwner {
+    ) public onlyUserProxyInterfaceOrOwner { //ds why don't we do syncPools or syncSolidEmissions(solidPoolAddress) here as well?
         // No empty withdrawals
-        require(amount > 0, "Withdrawal amount must be greater than zero");
+        require(amount > 0, "Withdrawal must be >0"); //ds technically don't need this require, since we have it in the multirewards withdraw
 
         // Fetch addresses
         address oxPoolAddress = oxLens.oxPoolBySolidPool(solidPoolAddress);
         address stakingAddress = IOxPool(oxPoolAddress).stakingAddress();
 
         // Check staked balance
-        uint256 stakedBalance = IERC20(stakingAddress).balanceOf(address(this));
-        require(stakedBalance > 0, "Nothing to withdraw");
+        uint256 stakedBalance = IMultiRewards(stakingAddress).balanceOf(address(this));
+        require(stakedBalance > 0, "Nothing to unstake");
 
         // Withdraw oxLP from multirewards
         IMultiRewards(stakingAddress).withdraw(amount);
@@ -163,7 +163,7 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         syncSolidEmissions(solidPoolAddress)
     {
         // No empty withdrawals
-        require(amount > 0, "Withdrawal amount must be greater than zero");
+        require(amount > 0, "Withdrawal must be >0");
 
         // Fetch addresses
         address oxPoolAddress = oxLens.oxPoolBySolidPool(solidPoolAddress);
@@ -179,6 +179,40 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
     }
 
     /**
+     * @notice Staked oxPool LP -> oxPool LP -> LP
+     * @param solidPoolAddress The solid pool LP address to withdraw and unstake
+     * @param amount The amount of solid pool LP to withdraw and unstake
+     */
+    function emergencyWithdraw(
+        address solidPoolAddress,
+        uint256 amount,
+        bool unstake
+    ) public onlyUserProxyInterfaceOrOwner {
+        // No empty withdrawals
+        require(amount > 0, "Withdrawal must be >0"); //ds technically don't need this require, since we have it in the multirewards withdraw
+
+        // Fetch addresses
+        address oxPoolAddress = oxLens.oxPoolBySolidPool(solidPoolAddress);
+        address stakingAddress = IOxPool(oxPoolAddress).stakingAddress();
+
+        // Check staked balance
+        uint256 stakedBalance = IMultiRewards(stakingAddress).balanceOf(address(this));
+        require(stakedBalance > 0, "Nothing to unstake");
+
+        // Withdraw oxLP from multirewards
+        IMultiRewards(stakingAddress).withdraw(amount);
+
+        // Redeem/burn oxPool LP for Solidly LP
+        IOxPool(oxPoolAddress).withdrawLp(amount);
+
+        // Transfer Solidly LP to user
+        IERC20(solidPoolAddress).transfer(ownerAddress, amount);
+
+        // Register withdrawal
+        registerUnstake(stakingAddress);
+    }
+
+    /**
      * @notice oxPool LP -> Staked oxPool LP
      * @param oxPoolAddress The oxPool LP address to stake
      * @param amount The amount of oxPool LP to stake
@@ -187,13 +221,13 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         external
         onlyUserProxyInterfaceOrOwner
         syncPools
-    {
+    { //ds why don't we do syncSolidEmissions(solidPoolAddress) here as well?
         // No empty staking
-        require(amount > 0, "Staking amount must be greater than zero");
+        require(amount > 0, "Stake must be >0");
 
         // Save staked balance
         address stakingAddress = IOxPool(oxPoolAddress).stakingAddress();
-        uint256 stakedBalanceBefore = IERC20(stakingAddress).balanceOf(
+        uint256 stakedBalanceBefore = IMultiRewards(stakingAddress).balanceOf(
             address(this)
         );
 
@@ -205,7 +239,7 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         IMultiRewards(stakingAddress).stake(amount);
 
         // Make sure balance was staked
-        uint256 stakedBalanceAfter = IERC20(stakingAddress).balanceOf(
+        uint256 stakedBalanceAfter = IMultiRewards(stakingAddress).balanceOf(
             address(this)
         );
         assert(stakedBalanceAfter == stakedBalanceBefore + amount);
@@ -225,11 +259,11 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         syncPools
     {
         // No empty unstaking
-        require(amount > 0, "Staking amount must be greater than zero");
+        require(amount > 0, "Stake must be >0");
 
         // Save staked balance
         address stakingAddress = IOxPool(oxPoolAddress).stakingAddress();
-        uint256 stakedBalanceBefore = IERC20(stakingAddress).balanceOf(
+        uint256 stakedBalanceBefore = IMultiRewards(stakingAddress).balanceOf(
             address(this)
         );
 
@@ -237,7 +271,7 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
         IMultiRewards(stakingAddress).withdraw(amount);
 
         // Make sure balance was unstaked
-        uint256 stakedBalanceAfter = IERC20(stakingAddress).balanceOf(
+        uint256 stakedBalanceAfter = IMultiRewards(stakingAddress).balanceOf(
             address(this)
         );
         assert(stakedBalanceAfter == stakedBalanceBefore - amount);
@@ -268,7 +302,7 @@ contract UserProxyLpInteractions is UserProxyStorageLayout {
             address rewardTokenAddress = multiRewards.rewardTokens(
                 rewardTokenIndex
             );
-            uint256 balance = IERC20(rewardTokenAddress).balanceOf(
+            uint256 balance = IMultiRewards(rewardTokenAddress).balanceOf(
                 address(this)
             );
             if (balance > 0) {
